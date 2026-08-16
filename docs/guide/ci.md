@@ -39,7 +39,7 @@ These settings apply only to GitHub Actions workflows. For GitLab CI/CD, update 
 
 ## Dependency Update Bots
 
-`vp create` and `vp migrate` write two npm entries that must stay on one version: the `vite-plus` dependency and the `vite` alias (`npm:@voidzero-dev/vite-plus-core@<version>`). Projects that use `vp test` also carry a `vitest` override pinned to the version bundled in Vite+. A dependency bot sees unrelated packages and updates each one in its own PR. Either PR leaves the project on a Vite+ pairing that was never published together, and `vp build` and `vp test` fail on the mismatch.
+`vp create` and `vp migrate` write two npm entries that must stay on one version: the `vite-plus` dependency and the `vite` alias (`npm:@voidzero-dev/vite-plus-core@<version>`). Projects that use `vp test` also carry a `vitest` override pinned to the version bundled in Vite+. A dependency bot sees unrelated packages and updates each one in its own PR. Either PR leaves the project on a Vite+ pairing that was never published together, and `vp dev`, `vp build`, `vp preview`, and `vp test` fail on the mismatch.
 
 Configure your bot to update these packages in one grouped PR.
 
