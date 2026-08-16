@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { DEFAULT_ENVS, resolveBundled } from './utils/constants.ts';
+import { checkCoreVersionMatch } from './utils/core-version-guard.ts';
 
 interface VitestPackageJson {
   bin?: string | Record<string, string>;
@@ -38,6 +39,11 @@ export async function test(): Promise<{
   binPath: string;
   envs: Record<string, string>;
 }> {
+  // Fail fast when a dependency bot moved the project's `vite` alias out of
+  // lockstep with the CLI: the bundled Vitest would load that skewed core as
+  // its `vite`, a pairing that was never released together.
+  checkCoreVersionMatch();
+
   const pkgJsonPath = resolveBundled('vitest/package.json');
   const pkgRoot = dirname(pkgJsonPath);
   const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf-8')) as VitestPackageJson;
