@@ -10,33 +10,18 @@
  * core dependency, while plugins and configs that `import 'vite'` load the
  * project's aliased copy at the other version. Fail fast instead, so a
  * mismatched bot PR fails CI before the pairing ships.
+ *
+ * The expected version is the running CLI package's own version
+ * ({@link CLI_PACKAGE_VERSION}), never an env-derived one: `VP_VERSION` can
+ * linger from the installer session or arrive injected by a parent `vp`
+ * process, and preview builds publish CLI and core from one commit with equal
+ * versions, so the package version is correct for every flow.
  */
 
-import { VITE_PLUS_CORE_PACKAGE_NAME, VITE_PLUS_OVERRIDE_PACKAGES } from './constants.ts';
+import { CLI_PACKAGE_VERSION, VITE_PLUS_CORE_PACKAGE_NAME } from './constants.ts';
 import { detectPackageMetadata } from './package.ts';
 
 export const SKIP_CORE_VERSION_CHECK_ENV = 'VP_SKIP_CORE_VERSION_CHECK';
-
-/**
- * Extract the exact core version from a `vite` alias spec
- * (`npm:@voidzero-dev/vite-plus-core@<version>`). Returns `null` for every
- * other shape: preview and ecosystem flows redefine the alias to a tarball
- * URL or `file:` spec (via `VP_VERSION` / `VP_OVERRIDE_PACKAGES`), and those
- * carry no exact version to compare against. Deriving the skip from the spec
- * instead of from env-var names keeps the guard active when `VP_VERSION` is
- * merely a plain version (the Rust CLI injects one into every child env, so
- * nested `vp` runs would otherwise silently lose the check).
- *
- * Exported for unit testing.
- */
-export function parseCoreAliasVersion(aliasSpec: string | undefined): string | null {
-  const prefix = `npm:${VITE_PLUS_CORE_PACKAGE_NAME}@`;
-  if (!aliasSpec?.startsWith(prefix)) {
-    return null;
-  }
-  const version = aliasSpec.slice(prefix.length);
-  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) ? version : null;
-}
 
 /**
  * Throw when the project's aliased core version differs from the version the
@@ -65,24 +50,19 @@ export function assertCoreVersionMatch(
 }
 
 /**
- * Orchestrates the guard: honor the escape hatch, derive the expected version
- * from the alias spec the CLI itself scaffolds (skipping redefined preview
- * specs), read what `vite` resolves to from the project (the copy plugins and
- * configs import), and assert. A project on real Vite, or with no `vite`
- * installed, passes.
+ * Orchestrates the guard: honor the escape hatch, read what `vite` resolves
+ * to from the command's directory (the copy plugins and configs import), and
+ * assert it against the running CLI's version. A project on real Vite, or
+ * with no `vite` installed, passes.
  *
- * The `aliasSpec` parameter exists for unit tests; production callers use the
- * default.
+ * The `expectedVersion` parameter exists for unit tests; production callers
+ * use the default.
  */
 export function checkCoreVersionMatch(
   projectDir: string = process.cwd(),
-  aliasSpec: string | undefined = VITE_PLUS_OVERRIDE_PACKAGES.vite,
+  expectedVersion: string = CLI_PACKAGE_VERSION,
 ): void {
   if (process.env[SKIP_CORE_VERSION_CHECK_ENV]) {
-    return;
-  }
-  const expectedVersion = parseCoreAliasVersion(aliasSpec);
-  if (!expectedVersion) {
     return;
   }
   const installed = detectPackageMetadata(projectDir, 'vite');
@@ -92,18 +72,20 @@ export function checkCoreVersionMatch(
   );
 }
 
-let coreVersionChecked = false;
+const checkedDirs = new Set<string>();
 
 /**
  * Memoized wrapper for the resolver path. The `vite`/`test` resolvers run
  * once per intercepted script command, so a `vp run` across a large workspace
- * would repeat the same read of an unchanging file; the project dir never
- * changes within a process, so one check suffices.
+ * would repeat the same read; one check per execution directory suffices.
+ * The directory comes from the Rust side (the task cwd), because retargeted
+ * runs (`defaultPackage`, `vp run -r`) execute in a package dir while the
+ * Node process cwd stays at the invocation root.
  */
-export function checkCoreVersionMatchOnce(): void {
-  if (coreVersionChecked) {
+export function checkCoreVersionMatchOnce(projectDir: string = process.cwd()): void {
+  if (checkedDirs.has(projectDir)) {
     return;
   }
-  coreVersionChecked = true;
-  checkCoreVersionMatch();
+  checkedDirs.add(projectDir);
+  checkCoreVersionMatch(projectDir);
 }

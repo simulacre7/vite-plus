@@ -62,13 +62,16 @@ impl SubcommandResolver {
     }
 
     /// Resolve a synthesizable subcommand to a concrete program, args, cache config, and envs.
+    /// `cwd` is the directory the resolved command will run in (the task cwd
+    /// for intercepted script commands); it is forwarded to the JS resolvers.
     pub(super) async fn resolve(
         &self,
         subcommand: SynthesizableSubcommand,
         resolved_vite_config: Option<&ResolvedUniversalViteConfig>,
         envs: &Arc<FxHashMap<Arc<OsStr>, Arc<OsStr>>>,
+        cwd: &AbsolutePath,
     ) -> anyhow::Result<ResolvedSubcommand> {
-        self.resolve_inner(subcommand, resolved_vite_config, envs).await
+        self.resolve_inner(subcommand, resolved_vite_config, envs, cwd).await
     }
 
     async fn resolve_inner(
@@ -76,11 +79,17 @@ impl SubcommandResolver {
         subcommand: SynthesizableSubcommand,
         resolved_vite_config: Option<&ResolvedUniversalViteConfig>,
         envs: &Arc<FxHashMap<Arc<OsStr>, Arc<OsStr>>>,
+        cwd: &AbsolutePath,
     ) -> anyhow::Result<ResolvedSubcommand> {
+        let cwd_string = cwd
+            .as_path()
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("command cwd is not valid UTF-8"))?
+            .to_string();
         match subcommand {
             SynthesizableSubcommand::Lint { mut args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.lint)().await?;
+                let resolved = (cli_options.lint)(cwd_string.clone()).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
@@ -117,7 +126,7 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Fmt { mut args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.fmt)().await?;
+                let resolved = (cli_options.fmt)(cwd_string.clone()).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
@@ -153,7 +162,7 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Build { args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.vite)().await?;
+                let resolved = (cli_options.vite)(cwd_string.clone()).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
@@ -182,7 +191,7 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Test { args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.test)().await?;
+                let resolved = (cli_options.test)(cwd_string.clone()).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
@@ -214,7 +223,7 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Pack { args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.pack)().await?;
+                let resolved = (cli_options.pack)(cwd_string.clone()).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
@@ -236,7 +245,7 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Dev { args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.vite)().await?;
+                let resolved = (cli_options.vite)(cwd_string.clone()).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
@@ -254,7 +263,7 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Preview { args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.vite)().await?;
+                let resolved = (cli_options.vite)(cwd_string.clone()).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
@@ -272,7 +281,7 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Doc { args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.doc)().await?;
+                let resolved = (cli_options.doc)(cwd_string.clone()).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()

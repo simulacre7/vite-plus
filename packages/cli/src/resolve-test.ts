@@ -35,13 +35,18 @@ interface VitestPackageJson {
  * unreachable. See `resolveBundled` for the rationale (avoiding dual-copy
  * Vitest internal-state / mock-hoisting mismatches).
  */
-export async function test(): Promise<{
+export async function test(
+  // Callee-handled NAPI callback: the payload (the command's cwd) is the
+  // second argument, after the error slot.
+  _err?: unknown,
+  taskDir?: string,
+): Promise<{
   binPath: string;
   envs: Record<string, string>;
 }> {
   // Fail fast before the bundled Vitest loads a skewed `vite` alias as its
   // vite (see core-version-guard.ts).
-  checkCoreVersionMatchOnce();
+  checkCoreVersionMatchOnce(taskDir);
 
   const pkgJsonPath = resolveBundled('vitest/package.json');
   const pkgRoot = dirname(pkgJsonPath);

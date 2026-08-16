@@ -6,6 +6,15 @@ export const VITE_PLUS_NAME = 'vite-plus';
 export const VITE_PLUS_CORE_PACKAGE_NAME = '@voidzero-dev/vite-plus-core';
 export const VITE_PLUS_VERSION = process.env.VP_VERSION || cliPkg.version;
 
+/**
+ * The version of the CLI package that is actually running, untouched by
+ * `VP_VERSION`. The installer docs tell users to set `VP_VERSION` (and on
+ * PowerShell it persists for the session), and the Rust CLI injects it into
+ * every child env, so anything that must describe the running CLI (not the
+ * install/migrate target) has to read this instead of {@link VITE_PLUS_VERSION}.
+ */
+export const CLI_PACKAGE_VERSION: string = cliPkg.version;
+
 // Mirrors Vite's DEFAULT_CONFIG_FILES order so readers and writers target the same file.
 export const VITE_CONFIG_FILES = [
   'vite.config.js',

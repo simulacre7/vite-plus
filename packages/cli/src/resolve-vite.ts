@@ -25,12 +25,17 @@ import { checkCoreVersionMatchOnce } from './utils/core-version-guard.ts';
  * to vite package (for direct vite installations).
  * It constructs the path to the CLI binary within the resolved package.
  */
-export async function vite(): Promise<{
+export async function vite(
+  // Callee-handled NAPI callback: the payload (the command's cwd) is the
+  // second argument, after the error slot.
+  _err?: unknown,
+  taskDir?: string,
+): Promise<{
   binPath: string;
   envs: Record<string, string>;
 }> {
   // Fail fast on a `vite` alias that skews from the CLI (see core-version-guard.ts).
-  checkCoreVersionMatchOnce();
+  checkCoreVersionMatchOnce(taskDir);
 
   // Vite's CLI binary is located at bin/vite.js relative to the package root
   const vitePackagePath = dirname(resolve('@voidzero-dev/vite-plus-core'));

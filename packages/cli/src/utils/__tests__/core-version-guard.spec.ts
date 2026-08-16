@@ -8,25 +8,8 @@ import { VITE_PLUS_CORE_PACKAGE_NAME as CORE } from '../constants.ts';
 import {
   assertCoreVersionMatch,
   checkCoreVersionMatch,
-  parseCoreAliasVersion,
   SKIP_CORE_VERSION_CHECK_ENV,
 } from '../core-version-guard.ts';
-
-describe('parseCoreAliasVersion', () => {
-  it('extracts the exact version from the scaffolded alias spec', () => {
-    expect(parseCoreAliasVersion(`npm:${CORE}@1.2.3`)).toBe('1.2.3');
-    expect(parseCoreAliasVersion(`npm:${CORE}@1.2.3-alpha.4`)).toBe('1.2.3-alpha.4');
-  });
-
-  it('returns null for redefined alias specs with no exact version', () => {
-    expect(
-      parseCoreAliasVersion(`https://pkg.pr.new/voidzero-dev/vite-plus/${CORE}@1891`),
-    ).toBeNull();
-    expect(parseCoreAliasVersion(`npm:${CORE}@https://pkg.pr.new/vite-plus@1891`)).toBeNull();
-    expect(parseCoreAliasVersion('file:../vite-plus-core')).toBeNull();
-    expect(parseCoreAliasVersion(undefined)).toBeNull();
-  });
-});
 
 describe('assertCoreVersionMatch', () => {
   it('does not throw when the aliased core matches the expected version', () => {
@@ -65,35 +48,28 @@ describe('checkCoreVersionMatch', () => {
     rmSync(projectDir, { recursive: true, force: true });
   });
 
-  it('throws when the installed aliased core skews from the alias spec', () => {
+  it('throws when the installed aliased core skews from the expected version', () => {
     writeVitePackage({ name: CORE, version: '1.2.0' });
-    expect(() => checkCoreVersionMatch(projectDir, `npm:${CORE}@1.2.3`)).toThrow(`${CORE}@1.2.0`);
+    expect(() => checkCoreVersionMatch(projectDir, '1.2.3')).toThrow(`${CORE}@1.2.0`);
   });
 
   it('does not throw when the installed aliased core matches', () => {
     writeVitePackage({ name: CORE, version: '1.2.3' });
-    expect(() => checkCoreVersionMatch(projectDir, `npm:${CORE}@1.2.3`)).not.toThrow();
+    expect(() => checkCoreVersionMatch(projectDir, '1.2.3')).not.toThrow();
   });
 
   it(`skips the check when ${SKIP_CORE_VERSION_CHECK_ENV} is set`, () => {
     vi.stubEnv(SKIP_CORE_VERSION_CHECK_ENV, '1');
     writeVitePackage({ name: CORE, version: '1.2.0' });
-    expect(() => checkCoreVersionMatch(projectDir, `npm:${CORE}@1.2.3`)).not.toThrow();
-  });
-
-  it('skips the check when the alias spec is redefined with no exact version', () => {
-    writeVitePackage({ name: CORE, version: '1.2.0' });
-    expect(() =>
-      checkCoreVersionMatch(projectDir, `https://pkg.pr.new/voidzero-dev/vite-plus/${CORE}@1891`),
-    ).not.toThrow();
+    expect(() => checkCoreVersionMatch(projectDir, '1.2.3')).not.toThrow();
   });
 
   it('does not throw for a project on real Vite', () => {
     writeVitePackage({ name: 'vite', version: '99.0.0' });
-    expect(() => checkCoreVersionMatch(projectDir, `npm:${CORE}@1.2.3`)).not.toThrow();
+    expect(() => checkCoreVersionMatch(projectDir, '1.2.3')).not.toThrow();
   });
 
   it('does not throw when vite is not installed', () => {
-    expect(() => checkCoreVersionMatch(projectDir, `npm:${CORE}@1.2.3`)).not.toThrow();
+    expect(() => checkCoreVersionMatch(projectDir, '1.2.3')).not.toThrow();
   });
 });
