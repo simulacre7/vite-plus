@@ -75,7 +75,7 @@ export function assertCoreVersionMatch(
         `packages are published in lockstep and other pairings are untested. A dependency ` +
         `bot usually causes this by updating vite-plus and the \`vite\` alias in separate ` +
         `PRs. Update the \`vite\` alias to npm:${CORE_PACKAGE_NAME}@${expectedVersion} ` +
-        `where it is declared (pnpm catalog, overrides, or dependencies), or run ` +
+        `where it is declared (catalog, overrides, resolutions, or dependencies), or run ` +
         `\`vp migrate\` to realign it. Set ${SKIP_CORE_VERSION_CHECK_ENV}=1 to skip this check.`,
     );
   }
