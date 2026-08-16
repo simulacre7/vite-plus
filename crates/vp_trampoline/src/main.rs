@@ -8,19 +8,39 @@
 //! On Ctrl+C, the trampoline ignores the signal (the child process handles it),
 //! avoiding the "Terminate batch job (Y/N)?" prompt that `.cmd` wrappers produce.
 //!
-//! **Size optimization**: This binary avoids `core::fmt` (which adds ~100KB) by
-//! never using `format!`, `eprintln!`, `println!`, or `.unwrap()`. All error
-//! paths use `process::exit(1)` directly.
+//! **Size optimization**: On Windows the binary uses `#![no_main]` with a
+//! `mainCRTStartup` entry point and raw Win32 calls instead of
+//! `std::process::Command`, in the uv-trampoline structure. Together with the
+//! build-std + `panic = "immediate-abort"` profile (see Cargo.toml) this keeps
+//! the exe at ~8KB. Error paths still report the failed call, the path
+//! involved, and the Windows error code. See rfcs/trampoline-exe-for-shims.md.
+//!
+//! The non-Windows build keeps the portable `std::process::Command`
+//! implementation; it exists so the crate builds and tests everywhere, and
+//! never ships (Unix shims are symlinks).
 //!
 //! See: <https://github.com/voidzero-dev/vite-plus/issues/835>
 
-use std::{
-    env,
-    process::{self, Command, ExitStatus},
-};
+#![cfg_attr(windows, no_main)]
+#![cfg_attr(windows, windows_subsystem = "console")]
+
+#[cfg_attr(not(windows), allow(dead_code))]
+mod cmdline;
+#[cfg(windows)]
+mod win;
+
+/// The linker picks this symbol as the console-subsystem entry point, so no
+/// `/ENTRY:` flag is needed. `std` runtime init never runs; see win.rs.
+#[cfg(windows)]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
+pub extern "C" fn mainCRTStartup() -> ! {
+    win::run()
+}
 
 /// Preserve Unix signal termination using the shell's `128 + signal` convention.
-fn exit_code_from_status(status: ExitStatus) -> i32 {
+#[cfg(not(windows))]
+fn exit_code_from_status(status: std::process::ExitStatus) -> i32 {
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
@@ -31,7 +51,13 @@ fn exit_code_from_status(status: ExitStatus) -> i32 {
     status.code().unwrap_or(1)
 }
 
+#[cfg(not(windows))]
 fn main() {
+    use std::{
+        env,
+        process::{self, Command},
+    };
+
     // 1. Determine tool name from our own executable filename
     let exe_path = env::current_exe().unwrap_or_else(|_| process::exit(1));
     let tool_name =
@@ -42,14 +68,8 @@ fn main() {
     let vp_home = bin_dir.parent().unwrap_or_else(|| process::exit(1));
     let vp_exe = vp_home.join("current").join("bin").join("vp.exe");
 
-    // 3. Install Ctrl+C handler that ignores signals (child will handle them).
-    //    This prevents the "Terminate batch job (Y/N)?" prompt.
-    #[cfg(windows)]
-    install_ctrl_handler();
-
-    // 4. Spawn vp.exe
+    // 3. Spawn vp.exe
     //    - Always set VP_HOME so vp.exe uses the correct home directory
-    //      (matches what the old .cmd wrappers did with %~dp0..)
     //    - If tool is "vp", run in normal CLI mode (no VP_SHIM_TOOL)
     //    - Otherwise, set VP_SHIM_TOOL so vp.exe enters shim dispatch
     let mut cmd = Command::new(&vp_exe);
@@ -60,15 +80,12 @@ fn main() {
         cmd.env("VP_SHIM_TOOL", tool_name);
         // Clear the recursion marker so nested shim invocations (e.g., npm
         // spawning node) get fresh version resolution instead of falling
-        // through to passthrough mode. The old .cmd wrappers went through
-        // `vp env exec` which cleared this in exec.rs; the trampoline
-        // bypasses that path.
+        // through to passthrough mode.
         // Must match vp_shared::env_vars::VP_TOOL_RECURSION
         cmd.env_remove("VP_TOOL_RECURSION");
     }
 
-    // 5. Execute and propagate exit code.
-    //    Use write_all instead of eprintln!/format! to avoid pulling in core::fmt (~100KB).
+    // 4. Execute and propagate exit code.
     match cmd.status() {
         Ok(status) => process::exit(exit_code_from_status(status)),
         Err(_) => {
@@ -85,37 +102,13 @@ fn main() {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::process::Command;
+
     use super::*;
 
     #[test]
     fn preserves_signal_exit_code() {
         let status = Command::new("/bin/sh").arg("-c").arg("kill -ILL $$").status().unwrap();
         assert_eq!(exit_code_from_status(status), 132);
-    }
-}
-
-/// Install a console control handler that ignores Ctrl+C, Ctrl+Break, etc.
-///
-/// When Ctrl+C is pressed, Windows sends the event to all processes in the
-/// console group. By returning TRUE (1), we tell Windows we handled the event
-/// (by ignoring it). The child process also receives the event and can
-/// decide how to respond (typically by exiting gracefully).
-///
-/// This is the same pattern used by uv-trampoline and Python's distlib launcher.
-#[cfg(windows)]
-fn install_ctrl_handler() {
-    // Raw FFI declaration to avoid pulling in the heavy `windows`/`windows-core` crates.
-    // Signature: https://learn.microsoft.com/en-us/windows/console/setconsolectrlhandler
-    type HandlerRoutine = unsafe extern "system" fn(ctrl_type: u32) -> i32;
-    unsafe extern "system" {
-        fn SetConsoleCtrlHandler(handler: Option<HandlerRoutine>, add: i32) -> i32;
-    }
-
-    unsafe extern "system" fn handler(_ctrl_type: u32) -> i32 {
-        1 // TRUE - signal handled (ignored)
-    }
-
-    unsafe {
-        SetConsoleCtrlHandler(Some(handler), 1);
     }
 }
