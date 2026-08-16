@@ -12,69 +12,52 @@
  * mismatched bot PR fails CI before the pairing ships.
  */
 
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import path from 'node:path';
+import { VITE_PLUS_CORE_PACKAGE_NAME, VITE_PLUS_OVERRIDE_PACKAGES } from './constants.ts';
+import { detectPackageMetadata } from './package.ts';
 
-import { VITE_PLUS_VERSION } from './constants.ts';
-
-export const CORE_PACKAGE_NAME = '@voidzero-dev/vite-plus-core';
 export const SKIP_CORE_VERSION_CHECK_ENV = 'VP_SKIP_CORE_VERSION_CHECK';
 
-interface InstalledVitePackage {
-  name?: string;
-  version?: string;
-}
-
 /**
- * Read the `package.json` of whatever `vite` resolves to from the project
- * directory, the same copy the project's plugins and configs import. Returns
- * `null` when `vite` is not resolvable (no install yet, or no `vite`
- * dependency at all).
+ * Extract the exact core version from a `vite` alias spec
+ * (`npm:@voidzero-dev/vite-plus-core@<version>`). Returns `null` for every
+ * other shape: preview and ecosystem flows redefine the alias to a tarball
+ * URL or `file:` spec (via `VP_VERSION` / `VP_OVERRIDE_PACKAGES`), and those
+ * carry no exact version to compare against. Deriving the skip from the spec
+ * instead of from env-var names keeps the guard active when `VP_VERSION` is
+ * merely a plain version (the Rust CLI injects one into every child env, so
+ * nested `vp` runs would otherwise silently lose the check).
  *
- * The `_createRequire` / `_readFile` parameters let tests inject controlled
- * resolvers without spying on Node's module/fs namespaces (same pattern as
- * the coverage-provider guard in `define-config.ts`).
+ * Exported for unit testing.
  */
-export function readProjectVitePackage(
-  projectDir: string,
-  _createRequire: (from: string) => { resolve: (id: string) => string } = createRequire,
-  _readFile: (file: string) => string = (file) => readFileSync(file, 'utf8'),
-): InstalledVitePackage | null {
-  try {
-    const req = _createRequire(path.join(projectDir, 'package.json'));
-    const pkgJsonPath = req.resolve('vite/package.json');
-    return JSON.parse(_readFile(pkgJsonPath)) as InstalledVitePackage;
-  } catch {
+export function parseCoreAliasVersion(aliasSpec: string | undefined): string | null {
+  const prefix = `npm:${VITE_PLUS_CORE_PACKAGE_NAME}@`;
+  if (!aliasSpec?.startsWith(prefix)) {
     return null;
   }
+  const version = aliasSpec.slice(prefix.length);
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) ? version : null;
 }
 
 /**
- * Throw when the project's `vite` alias resolves to a
- * `@voidzero-dev/vite-plus-core` whose version differs from the running CLI.
- * A no-op when `vite` is not installed, resolves to real Vite (a project that
- * did not adopt the alias), or matches the CLI version.
+ * Throw when the project's aliased core version differs from the version the
+ * CLI expects. A no-op when no aliased core is installed.
  *
  * Exported for unit testing.
  */
 export function assertCoreVersionMatch(
-  installed: InstalledVitePackage | null,
-  expectedVersion: string = VITE_PLUS_VERSION,
+  installedVersion: string | null | undefined,
+  expectedVersion: string,
 ): void {
-  if (installed?.name !== CORE_PACKAGE_NAME || !installed.version) {
-    return;
-  }
-  if (installed.version !== expectedVersion) {
+  if (installedVersion && installedVersion !== expectedVersion) {
     // Keep every version inside a `@voidzero-dev/vite-plus-core@<x>` context:
     // the PTY snapshot redactor masks the CLI's own version only in that form
     // (a bare `vite-plus@<x>` stays verbatim and would churn every release).
     throw new Error(
-      `The project's \`vite\` alias resolves to ${CORE_PACKAGE_NAME}@${installed.version}, ` +
-        `but this vite-plus CLI requires ${CORE_PACKAGE_NAME}@${expectedVersion}: the two ` +
+      `The project's \`vite\` alias resolves to ${VITE_PLUS_CORE_PACKAGE_NAME}@${installedVersion}, ` +
+        `but this vite-plus CLI requires ${VITE_PLUS_CORE_PACKAGE_NAME}@${expectedVersion}: the two ` +
         `packages are published in lockstep and other pairings are untested. A dependency ` +
         `bot usually causes this by updating vite-plus and the \`vite\` alias in separate ` +
-        `PRs. Update the \`vite\` alias to npm:${CORE_PACKAGE_NAME}@${expectedVersion} ` +
+        `PRs. Update the \`vite\` alias to npm:${VITE_PLUS_CORE_PACKAGE_NAME}@${expectedVersion} ` +
         `where it is declared (catalog, overrides, resolutions, or dependencies), or run ` +
         `\`vp migrate\` to realign it. Set ${SKIP_CORE_VERSION_CHECK_ENV}=1 to skip this check.`,
     );
@@ -82,22 +65,45 @@ export function assertCoreVersionMatch(
 }
 
 /**
- * Orchestrates the guard: skip in preview/override flows where the CLI's
- * version identity is redefined (`VP_VERSION` set, e.g. pkg.pr.new and
- * registry-bridge installs pointing the alias at a tarball URL), skip on the
- * explicit escape hatch, otherwise read the project's `vite` and assert.
+ * Orchestrates the guard: honor the escape hatch, derive the expected version
+ * from the alias spec the CLI itself scaffolds (skipping redefined preview
+ * specs), read what `vite` resolves to from the project (the copy plugins and
+ * configs import), and assert. A project on real Vite, or with no `vite`
+ * installed, passes.
  *
- * Exported (with injectable `deps`) for unit testing.
+ * The `aliasSpec` parameter exists for unit tests; production callers use the
+ * default.
  */
 export function checkCoreVersionMatch(
   projectDir: string = process.cwd(),
-  deps: {
-    createRequire?: (from: string) => { resolve: (id: string) => string };
-    readFile?: (file: string) => string;
-  } = {},
+  aliasSpec: string | undefined = VITE_PLUS_OVERRIDE_PACKAGES.vite,
 ): void {
-  if (process.env[SKIP_CORE_VERSION_CHECK_ENV] || process.env.VP_VERSION) {
+  if (process.env[SKIP_CORE_VERSION_CHECK_ENV]) {
     return;
   }
-  assertCoreVersionMatch(readProjectVitePackage(projectDir, deps.createRequire, deps.readFile));
+  const expectedVersion = parseCoreAliasVersion(aliasSpec);
+  if (!expectedVersion) {
+    return;
+  }
+  const installed = detectPackageMetadata(projectDir, 'vite');
+  assertCoreVersionMatch(
+    installed && installed.name === VITE_PLUS_CORE_PACKAGE_NAME ? installed.version : null,
+    expectedVersion,
+  );
+}
+
+let coreVersionChecked = false;
+
+/**
+ * Memoized wrapper for the resolver path. The `vite`/`test` resolvers run
+ * once per intercepted script command, so a `vp run` across a large workspace
+ * would repeat the same read of an unchanging file; the project dir never
+ * changes within a process, so one check suffices.
+ */
+export function checkCoreVersionMatchOnce(): void {
+  if (coreVersionChecked) {
+    return;
+  }
+  coreVersionChecked = true;
+  checkCoreVersionMatch();
 }
