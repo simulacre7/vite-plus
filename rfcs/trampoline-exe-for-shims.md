@@ -166,15 +166,15 @@ platform; Unix shims are symlinks and never use it.
 
 ### Size Optimization
 
-| Technique                                                              | Status |
-| ---------------------------------------------------------------------- | ------ |
-| Zero external dependencies (raw FFI, no `windows` crate)               | Done   |
-| No `core::fmt` (diagnostics via `WriteFile` + manual decimal formatter) | Done   |
-| Own profile: `opt-level="z"`, `lto="fat"`, `codegen-units=1`, `strip`  | Done   |
-| build-std: recompile `std` with this profile (`-Zbuild-std`)           | Done   |
-| `panic = "immediate-abort"` (no panic formatting, unwinding, backtrace) | Done   |
-| `#![no_main]` + `mainCRTStartup` (no CRT startup, no `std` runtime init) | Done |
-| Raw `CreateProcessW` instead of `std::process::Command`                | Done   |
+| Technique                                                                | Status |
+| ------------------------------------------------------------------------ | ------ |
+| Zero external dependencies (raw FFI, no `windows` crate)                 | Done   |
+| No `core::fmt` (diagnostics via `WriteFile` + manual decimal formatter)  | Done   |
+| Own profile: `opt-level="z"`, `lto="fat"`, `codegen-units=1`, `strip`    | Done   |
+| build-std: recompile `std` with this profile (`-Zbuild-std`)             | Done   |
+| `panic = "immediate-abort"` (no panic formatting, unwinding, backtrace)  | Done   |
+| `#![no_main]` + `mainCRTStartup` (no CRT startup, no `std` runtime init) | Done   |
+| Raw `CreateProcessW` instead of `std::process::Command`                  | Done   |
 
 **Binary size**: 8,192 B on x86_64-pc-windows-msvc (9,216 B on aarch64), with
 full error diagnostics. The same source built against the precompiled `std`
@@ -305,15 +305,15 @@ Every variant below was built with cargo-xwin and measured on
 x86_64-pc-windows-msvc. The ladder shows what each technique buys and serves
 as reference material for future size work.
 
-| Variant                                                                    | Toolchain | Size      |
-| -------------------------------------------------------------------------- | --------- | --------- |
-| `std::process::Command` source, precompiled `std`, `opt-level="z"` + fat LTO + `panic="abort"` | stable | 212,992 B |
-| Same source + build-std + `panic="immediate-abort"`                        | nightly   | 73,728 B  |
-| Same + `#![no_main]` + `mainCRTStartup` + `atexit` stub                    | nightly   | 69,632 B  |
-| Raw Win32 rewrite, normal `main`, stable, no build-std                     | stable    | 105,984 B |
-| Raw Win32 rewrite, normal `main` + build-std                               | nightly   | 13,824 B  |
-| Raw Win32 rewrite + `#![no_main]`, no diagnostics                          | nightly   | 6,656 B   |
-| Raw Win32 rewrite + `#![no_main]` + full error diagnostics (shipped)       | nightly   | 8,192 B   |
+| Variant                                                                                        | Toolchain | Size      |
+| ---------------------------------------------------------------------------------------------- | --------- | --------- |
+| `std::process::Command` source, precompiled `std`, `opt-level="z"` + fat LTO + `panic="abort"` | stable    | 212,992 B |
+| Same source + build-std + `panic="immediate-abort"`                                            | nightly   | 73,728 B  |
+| Same + `#![no_main]` + `mainCRTStartup` + `atexit` stub                                        | nightly   | 69,632 B  |
+| Raw Win32 rewrite, normal `main`, stable, no build-std                                         | stable    | 105,984 B |
+| Raw Win32 rewrite, normal `main` + build-std                                                   | nightly   | 13,824 B  |
+| Raw Win32 rewrite + `#![no_main]`, no diagnostics                                              | nightly   | 6,656 B   |
+| Raw Win32 rewrite + `#![no_main]` + full error diagnostics (shipped)                           | nightly   | 8,192 B   |
 
 For comparison: uv-trampoline ships 45,056 B (x64 console), Scoop's default
 kiennq shim is 136,192 B (statically linked MSVC C), and Scoop once vendored
