@@ -12,6 +12,25 @@ use super::{
     types::{CliOptions, ResolvedSubcommand, ResolvedUniversalViteConfig, SynthesizableSubcommand},
 };
 
+/// The directory string handed to the JS `vite` resolver: the Vite app dir
+/// selected by a `[root]` positional or an explicit `-c`/`--config` file
+/// (where the app's config and plugins resolve `vite` from), falling back to
+/// the command's cwd.
+fn vite_resolver_dir(
+    args: &[String],
+    cwd: &AbsolutePath,
+    cwd_string: &str,
+) -> anyhow::Result<String> {
+    match super::app_target::vite_config_dir(args, cwd) {
+        Some(dir) => Ok(dir
+            .as_path()
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("vite root is not valid UTF-8"))?
+            .to_string()),
+        None => Ok(cwd_string.to_string()),
+    }
+}
+
 /// Resolves synthesizable subcommands to concrete programs and arguments.
 /// Used by both direct CLI execution and CommandHandler.
 pub struct SubcommandResolver {
@@ -162,7 +181,8 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Build { args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.vite)(cwd_string.clone()).await?;
+                let resolved =
+                    (cli_options.vite)(vite_resolver_dir(&args, cwd, &cwd_string)?).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
@@ -245,7 +265,8 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Dev { args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.vite)(cwd_string.clone()).await?;
+                let resolved =
+                    (cli_options.vite)(vite_resolver_dir(&args, cwd, &cwd_string)?).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
@@ -263,7 +284,8 @@ impl SubcommandResolver {
             }
             SynthesizableSubcommand::Preview { args } => {
                 let cli_options = self.cli_options()?;
-                let resolved = (cli_options.vite)(cwd_string.clone()).await?;
+                let resolved =
+                    (cli_options.vite)(vite_resolver_dir(&args, cwd, &cwd_string)?).await?;
                 let js_path = resolved.bin_path;
                 let js_path_str = js_path
                     .to_str()
