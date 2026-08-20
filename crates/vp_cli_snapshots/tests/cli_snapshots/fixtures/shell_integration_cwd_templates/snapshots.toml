@@ -1,6 +1,7 @@
 [[case]]
 name = "shell_integration_cwd_templates"
 vp = "global"
+skip-platforms = ["windows"]
 steps = [
   { argv = ["vp", "env", "setup", "--refresh"], envs = [["VP_HOME", "${workspace}/home"]], snapshot = false },
   { argv = ["vpt", "print-file", "home/env"], comment = "POSIX wrapper and zsh vpr completion keep global -C before env use/run" },
