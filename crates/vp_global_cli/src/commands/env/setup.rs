@@ -545,14 +545,14 @@ unset __vp_bin __vp_tmp __vp_before __vp_after
 # which sets/unsets VP_NODE_VERSION in the current shell session.
 vp() {
     __vp_env_use=
-    if [ "$1" = "env" ] && [ "$2" = "use" ]; then
+    if [ "${1-}" = "env" ] && [ "${2-}" = "use" ]; then
         __vp_env_use=1
-    elif [ "$1" = "-C" ] && [ "$3" = "env" ] && [ "$4" = "use" ]; then
+    elif [ "${1-}" = "-C" ] && [ "${3-}" = "env" ] && [ "${4-}" = "use" ]; then
         __vp_env_use=1
     else
-        case "$1" in
+        case "${1-}" in
             -C?*)
-                if [ "$2" = "env" ] && [ "$3" = "use" ]; then
+                if [ "${2-}" = "env" ] && [ "${3-}" = "use" ]; then
                     __vp_env_use=1
                 fi
                 ;;
@@ -571,14 +571,14 @@ vp() {
 }
 
 # Dynamic shell completion for bash/zsh
-if [ -n "$BASH_VERSION" ] && type complete >/dev/null 2>&1; then
+if [ -n "${BASH_VERSION-}" ] && type complete >/dev/null 2>&1; then
     eval "$(VP_COMPLETE=bash command vp)"
-elif [ -n "$ZSH_VERSION" ] && type compdef >/dev/null 2>&1; then
+elif [ -n "${ZSH_VERSION-}" ] && type compdef >/dev/null 2>&1; then
     eval "$(VP_COMPLETE=zsh command vp)"
     eval '
     _vpr_complete() {
         local -a orig=("${words[@]}")
-        if [[ "${orig[2]}" == "-C" ]]; then
+        if [[ "${orig[2]-}" == "-C" ]]; then
             if (( ${#orig[@]} >= 4 )); then
                 words=("vp" "-C" "${orig[3]}" "run" "${orig[@]:3}")
                 if (( CURRENT >= 4 )); then
@@ -587,7 +587,7 @@ elif [ -n "$ZSH_VERSION" ] && type compdef >/dev/null 2>&1; then
             else
                 words=("vp" "${orig[@]:1}")
             fi
-        elif [[ "${orig[2]}" == -C?* ]]; then
+        elif [[ "${orig[2]-}" == -C?* ]]; then
             if (( ${#orig[@]} >= 3 )); then
                 words=("vp" "${orig[2]}" "run" "${orig[@]:2}")
                 if (( CURRENT >= 3 )); then
@@ -1592,11 +1592,11 @@ mod tests {
                     "env file should contain vp() shell function"
                 );
                 assert!(
-                    env_content.contains("\"$1\" = \"env\""),
+                    env_content.contains("\"${1-}\" = \"env\""),
                     "env file should check for 'env' subcommand"
                 );
                 assert!(
-                    env_content.contains("\"$2\" = \"use\""),
+                    env_content.contains("\"${2-}\" = \"use\""),
                     "env file should check for 'use' subcommand"
                 );
                 assert!(
@@ -2078,6 +2078,8 @@ fi
 case " $* " in
     *" env use 20.18.0 "*) echo 'export VP_NODE_VERSION=20.18.0' ;;
     *" env use --unset "*) echo 'unset VP_NODE_VERSION' ;;
+    *" env "*) exit 0 ;;
+    "  ") exit 0 ;;
     *) exit 88 ;;
 esac
 "#,
@@ -2096,7 +2098,7 @@ esac
                 let status = Command::new("sh")
                     .arg("-c")
                     .arg(
-                        r#"set -e
+                        r#"set -eu
 . "$1"
 vp -C "$2" env use 20.18.0
 [ "$VP_NODE_VERSION" = "20.18.0" ]
@@ -2104,6 +2106,8 @@ vp "-C=$2" env use --unset
 [ -z "${VP_NODE_VERSION+x}" ]
 vp "-C$2" env use 20.18.0
 [ "$VP_NODE_VERSION" = "20.18.0" ]
+vp -C "$2" env
+vp
 "#,
                     )
                     .arg("test-posix-vp-wrapper")
@@ -2154,7 +2158,7 @@ vp "-C$2" env use 20.18.0
                 .arg(
                     r#"compdef() { : }
 typeset -A _comps
-capture() { print -r -- "$CURRENT|${words[1]}|${words[2]}|${words[3]}|${words[4]}|${words[5]}" }
+capture() { print -r -- "$CURRENT|${words[1]}|${words[2]-}|${words[3]-}|${words[4]-}|${words[5]-}" }
 _comps[vp]=capture
 . "$1"
 words=(vpr -C "" build)
@@ -2166,6 +2170,10 @@ _vpr_complete
 words=(vpr -Cdir build)
 CURRENT=2
 _vpr_complete
+setopt no_unset
+words=(vpr)
+CURRENT=1
+_vpr_complete
 "#,
                 )
                 .arg("test-zsh-vpr-completion")
@@ -2176,7 +2184,7 @@ _vpr_complete
             assert!(output.status.success(), "zsh completion script should run");
             assert_eq!(
                 String::from_utf8(output.stdout).unwrap(),
-                "3|vp|-C||run|build\n5|vp|-C|dir|run|build\n2|vp|-Cdir|run|build|\n"
+                "3|vp|-C||run|build\n5|vp|-C|dir|run|build\n2|vp|-Cdir|run|build|\n1|vp|run|||\n"
             );
         });
     }

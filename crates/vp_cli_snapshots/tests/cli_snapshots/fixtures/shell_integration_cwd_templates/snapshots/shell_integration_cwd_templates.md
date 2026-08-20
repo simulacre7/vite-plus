@@ -27,14 +27,14 @@ unset __vp_bin __vp_tmp __vp_before __vp_after
 # which sets/unsets VP_NODE_VERSION in the current shell session.
 vp() {
     __vp_env_use=
-    if [ "$1" = "env" ] && [ "$2" = "use" ]; then
+    if [ "${1-}" = "env" ] && [ "${2-}" = "use" ]; then
         __vp_env_use=1
-    elif [ "$1" = "-C" ] && [ "$3" = "env" ] && [ "$4" = "use" ]; then
+    elif [ "${1-}" = "-C" ] && [ "${3-}" = "env" ] && [ "${4-}" = "use" ]; then
         __vp_env_use=1
     else
-        case "$1" in
+        case "${1-}" in
             -C?*)
-                if [ "$2" = "env" ] && [ "$3" = "use" ]; then
+                if [ "${2-}" = "env" ] && [ "${3-}" = "use" ]; then
                     __vp_env_use=1
                 fi
                 ;;
@@ -53,14 +53,14 @@ vp() {
 }
 
 # Dynamic shell completion for bash/zsh
-if [ -n "$BASH_VERSION" ] && type complete >/dev/null 2>&1; then
+if [ -n "${BASH_VERSION-}" ] && type complete >/dev/null 2>&1; then
     eval "$(VP_COMPLETE=bash command vp)"
-elif [ -n "$ZSH_VERSION" ] && type compdef >/dev/null 2>&1; then
+elif [ -n "${ZSH_VERSION-}" ] && type compdef >/dev/null 2>&1; then
     eval "$(VP_COMPLETE=zsh command vp)"
     eval '
     _vpr_complete() {
         local -a orig=("${words[@]}")
-        if [[ "${orig[2]}" == "-C" ]]; then
+        if [[ "${orig[2]-}" == "-C" ]]; then
             if (( ${#orig[@]} >= 4 )); then
                 words=("vp" "-C" "${orig[3]}" "run" "${orig[@]:3}")
                 if (( CURRENT >= 4 )); then
@@ -69,7 +69,7 @@ elif [ -n "$ZSH_VERSION" ] && type compdef >/dev/null 2>&1; then
             else
                 words=("vp" "${orig[@]:1}")
             fi
-        elif [[ "${orig[2]}" == -C?* ]]; then
+        elif [[ "${orig[2]-}" == -C?* ]]; then
             if (( ${#orig[@]} >= 3 )); then
                 words=("vp" "${orig[2]}" "run" "${orig[@]:2}")
                 if (( CURRENT >= 3 )); then
