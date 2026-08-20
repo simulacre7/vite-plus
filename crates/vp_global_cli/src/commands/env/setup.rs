@@ -581,20 +581,26 @@ elif [ -n "$ZSH_VERSION" ] && type compdef >/dev/null 2>&1; then
         if [[ "${orig[2]}" == "-C" ]]; then
             if (( ${#orig[@]} >= 4 )); then
                 words=("vp" "-C" "${orig[3]}" "run" "${orig[@]:3}")
-                CURRENT=$((CURRENT + 1))
+                if (( CURRENT >= 4 )); then
+                    CURRENT=$((CURRENT + 1))
+                fi
             else
                 words=("vp" "${orig[@]:1}")
             fi
         elif [[ "${orig[2]}" == -C?* ]]; then
             if (( ${#orig[@]} >= 3 )); then
                 words=("vp" "${orig[2]}" "run" "${orig[@]:2}")
-                CURRENT=$((CURRENT + 1))
+                if (( CURRENT >= 3 )); then
+                    CURRENT=$((CURRENT + 1))
+                fi
             else
                 words=("vp" "${orig[@]:1}")
             fi
         else
             words=("vp" "run" "${orig[@]:1}")
-            CURRENT=$((CURRENT + 1))
+            if (( CURRENT >= 2 )); then
+                CURRENT=$((CURRENT + 1))
+            fi
         fi
         ${=_comps[vp]}
     }
@@ -721,8 +727,8 @@ def "nu-complete vp" [context: string] {
 def "nu-complete vpr" [context: string] {
     let modified_context = if ($context =~ '^vpr(?<cwd>\s+-C\s+(?:"[^"]*"|\x27[^\x27]*\x27|\S+))\s') {
         $context | str replace -r '^vpr(?<cwd>\s+-C\s+(?:"[^"]*"|\x27[^\x27]*\x27|\S+))\s' 'vp$cwd run '
-    } else if ($context =~ '^vpr(?<cwd>\s+-C=?\S+)\s') {
-        $context | str replace -r '^vpr(?<cwd>\s+-C=?\S+)\s' 'vp$cwd run '
+    } else if ($context =~ '^vpr(?<cwd>\s+-C=?(?:"[^"]*"|\x27[^\x27]*\x27|\S+))\s') {
+        $context | str replace -r '^vpr(?<cwd>\s+-C=?(?:"[^"]*"|\x27[^\x27]*\x27|\S+))\s' 'vp$cwd run '
     } else if ($context =~ '^vpr\s+-C') {
         $context | str replace -r '^vpr' 'vp'
     } else {
@@ -754,7 +760,7 @@ function vp {
     if ($args.Count -ge 1) {
         if ($args[0] -eq "-C") {
             $__vp_command_index = 2
-        } elseif ($args[0].StartsWith("-C") -and $args[0].Length -gt 2) {
+        } elseif ("$($args[0])" -like "-C?*") {
             $__vp_command_index = 1
         }
     }
@@ -794,8 +800,8 @@ $__vpr_comp = {
     $args = $commandLine.Substring(0, [math]::Min($cursorPosition, $commandLine.Length))
     if ($args -match '^(vpr\.exe|vpr)\b(\s+-C\s+(?:"[^"]*"|''[^'']*''|\S+))\s') {
         $args = $args -replace '^(vpr\.exe|vpr)\b(\s+-C\s+(?:"[^"]*"|''[^'']*''|\S+))\s', 'vp$2 run '
-    } elseif ($args -match '^(vpr\.exe|vpr)\b(\s+-C=?\S+)\s') {
-        $args = $args -replace '^(vpr\.exe|vpr)\b(\s+-C=?\S+)\s', 'vp$2 run '
+    } elseif ($args -match '^(vpr\.exe|vpr)\b(\s+-C=?(?:"[^"]*"|''[^'']*''|\S+))\s') {
+        $args = $args -replace '^(vpr\.exe|vpr)\b(\s+-C=?(?:"[^"]*"|''[^'']*''|\S+))\s', 'vp$2 run '
     } elseif ($args -match '^(vpr\.exe|vpr)\b\s+-C') {
         $args = $args -replace '^(vpr\.exe|vpr)\b', 'vp'
     } else {
@@ -2035,56 +2041,22 @@ mod tests {
         .await;
     }
 
-    #[tokio::test]
-    async fn test_create_env_files_cwd_aware_wrappers_and_vpr_completion() {
+    #[test]
+    fn test_render_env_content_cwd_completion_regressions() {
         let temp_dir = TempDir::new().unwrap();
-        let home = AbsolutePathBuf::new(temp_dir.path().to_path_buf()).unwrap();
-        vp_shared::EnvConfig::with_vars_async(
-            test_env_vars(temp_dir.path(), temp_dir.path()),
-            |_| async {
-                create_env_files().await.unwrap();
+        vp_shared::EnvConfig::with_vars(test_env_vars(temp_dir.path(), temp_dir.path()), |_| {
+            let config = vp_shared::EnvConfig::get();
+            let posix_content = render_env_content(EnvShell::Posix, &config);
+            let nu_content = render_env_content(EnvShell::Nu, &config);
+            let ps1_content = render_env_content(EnvShell::Powershell, &config);
 
-                let env_content = tokio::fs::read_to_string(home.join("env")).await.unwrap();
-                let fish_content = tokio::fs::read_to_string(home.join("env.fish")).await.unwrap();
-                let nu_content = tokio::fs::read_to_string(home.join("env.nu")).await.unwrap();
-                let ps1_content = tokio::fs::read_to_string(home.join("env.ps1")).await.unwrap();
-
-                assert!(
-                    env_content.contains(
-                        "[ \"$1\" = \"-C\" ] && [ \"$3\" = \"env\" ] && [ \"$4\" = \"use\" ]",
-                    ),
-                    "POSIX wrapper should skip a separate -C value"
-                );
-                assert!(
-                    env_content.contains("-C?*)")
-                        && env_content.contains("words=(\"vp\" \"-C\" \"${orig[3]}\" \"run\""),
-                    "POSIX wrapper and zsh completion should handle attached and separate -C"
-                );
-
-                assert!(
-                    fish_content.contains("set __vp_command_index 3")
-                        && fish_content.contains("string match -qr '^-C.+'")
-                        && fish_content.contains("string match -qr '^-C' -- \"$current\"")
-                        && fish_content.contains("set -a translated \"$args[2]\" run"),
-                    "fish wrapper and completion should preserve -C before run"
-                );
-
-                assert!(
-                    nu_content.contains("$args | skip 2")
-                        && nu_content.contains("str starts-with \"-C\"")
-                        && nu_content.contains("'vp$cwd run '"),
-                    "Nushell wrapper and completion should preserve -C before run"
-                );
-
-                assert!(
-                    ps1_content.contains("$__vp_command_index = 2")
-                        && ps1_content.contains("$args[0].StartsWith(\"-C\")")
-                        && ps1_content.contains("'vp$2 run '"),
-                    "PowerShell wrapper and completion should preserve -C before run"
-                );
-            },
-        )
-        .await;
+            assert!(posix_content.contains("if (( CURRENT >= 4 )); then"));
+            assert!(posix_content.contains("if (( CURRENT >= 3 )); then"));
+            assert!(nu_content.contains(r#"-C=?(?:"[^"]*"|\x27[^\x27]*\x27|\S+)"#));
+            assert!(ps1_content.contains(r#""$($args[0])" -like "-C?*""#));
+            assert!(!ps1_content.contains("$args[0].StartsWith"));
+            assert!(ps1_content.contains(r#"-C=?(?:"[^"]*"|''[^'']*''|\S+)"#));
+        });
     }
 
     #[tokio::test]
@@ -2124,11 +2096,14 @@ esac
                 let status = Command::new("sh")
                     .arg("-c")
                     .arg(
-                        r#". "$1"
+                        r#"set -e
+. "$1"
 vp -C "$2" env use 20.18.0
 [ "$VP_NODE_VERSION" = "20.18.0" ]
 vp "-C=$2" env use --unset
 [ -z "${VP_NODE_VERSION+x}" ]
+vp "-C$2" env use 20.18.0
+[ "$VP_NODE_VERSION" = "20.18.0" ]
 "#,
                     )
                     .arg("test-posix-vp-wrapper")
@@ -2141,5 +2116,68 @@ vp "-C=$2" env use --unset
             },
         )
         .await;
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_zsh_vpr_completion_preserves_cursor_before_inserted_run() {
+        use std::{os::unix::fs::PermissionsExt, process::Command};
+
+        if Command::new("zsh").arg("-c").arg("exit 0").status().is_err() {
+            return;
+        }
+
+        let temp_dir = TempDir::new().unwrap();
+        let home = AbsolutePathBuf::new(temp_dir.path().to_path_buf()).unwrap();
+        let bin_dir = home.join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let fake_vp = bin_dir.join("vp");
+        std::fs::write(
+            &fake_vp,
+            "#!/bin/sh\nif [ -n \"$VP_COMPLETE\" ]; then exit 0; fi\nexit 88\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&fake_vp).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_vp, permissions).unwrap();
+
+        vp_shared::EnvConfig::with_vars(test_env_vars(temp_dir.path(), temp_dir.path()), |_| {
+            let env_file = home.join("env");
+            std::fs::write(
+                &env_file,
+                render_env_content(EnvShell::Posix, &vp_shared::EnvConfig::get()),
+            )
+            .unwrap();
+
+            let output = Command::new("zsh")
+                .arg("-c")
+                .arg(
+                    r#"compdef() { : }
+typeset -A _comps
+capture() { print -r -- "$CURRENT|${words[1]}|${words[2]}|${words[3]}|${words[4]}|${words[5]}" }
+_comps[vp]=capture
+. "$1"
+words=(vpr -C "" build)
+CURRENT=3
+_vpr_complete
+words=(vpr -C dir build)
+CURRENT=4
+_vpr_complete
+words=(vpr -Cdir build)
+CURRENT=2
+_vpr_complete
+"#,
+                )
+                .arg("test-zsh-vpr-completion")
+                .arg(env_file.as_path())
+                .env("HOME", temp_dir.path())
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "zsh completion script should run");
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                "3|vp|-C||run|build\n5|vp|-C|dir|run|build\n2|vp|-Cdir|run|build|\n"
+            );
+        });
     }
 }

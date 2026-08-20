@@ -12,21 +12,16 @@ POSIX wrapper and zsh vpr completion keep global -C before env use/run
 # Vite+ environment setup (https://viteplus.dev)
 export VP_HOME="<workspace>/home"
 __vp_bin="<workspace>/home/bin"
-case ":${PATH}:" in
-    *":${__vp_bin}:"*)
-        __vp_tmp=":${PATH}:"
-        __vp_before="${__vp_tmp%%":${__vp_bin}:"*}"
-        __vp_before="${__vp_before#:}"
-        __vp_after="${__vp_tmp#*":${__vp_bin}:"}"
-        __vp_after="${__vp_after%:}"
-        export PATH="${__vp_bin}${__vp_before:+:${__vp_before}}${__vp_after:+:${__vp_after}}"
-        unset __vp_tmp __vp_before __vp_after
-        ;;
-    *)
-        export PATH="$__vp_bin:$PATH"
-        ;;
-esac
-unset __vp_bin
+while case ":${PATH}:" in *":${__vp_bin}:"*) true ;; *) false ;; esac; do
+    __vp_tmp=":${PATH}:"
+    __vp_before="${__vp_tmp%%":${__vp_bin}:"*}"
+    __vp_before="${__vp_before#:}"
+    __vp_after="${__vp_tmp#*":${__vp_bin}:"}"
+    __vp_after="${__vp_after%:}"
+    PATH="${__vp_before}${__vp_before:+${__vp_after:+:}}${__vp_after}"
+done
+export PATH="${__vp_bin}${PATH:+:${PATH}}"
+unset __vp_bin __vp_tmp __vp_before __vp_after
 
 # Shell function wrapper: intercepts `vp env use` to eval its stdout,
 # which sets/unsets VP_NODE_VERSION in the current shell session.
@@ -68,20 +63,26 @@ elif [ -n "$ZSH_VERSION" ] && type compdef >/dev/null 2>&1; then
         if [[ "${orig[2]}" == "-C" ]]; then
             if (( ${#orig[@]} >= 4 )); then
                 words=("vp" "-C" "${orig[3]}" "run" "${orig[@]:3}")
-                CURRENT=$((CURRENT + 1))
+                if (( CURRENT >= 4 )); then
+                    CURRENT=$((CURRENT + 1))
+                fi
             else
                 words=("vp" "${orig[@]:1}")
             fi
         elif [[ "${orig[2]}" == -C?* ]]; then
             if (( ${#orig[@]} >= 3 )); then
                 words=("vp" "${orig[2]}" "run" "${orig[@]:2}")
-                CURRENT=$((CURRENT + 1))
+                if (( CURRENT >= 3 )); then
+                    CURRENT=$((CURRENT + 1))
+                fi
             else
                 words=("vp" "${orig[@]:1}")
             fi
         else
             words=("vp" "run" "${orig[@]:1}")
-            CURRENT=$((CURRENT + 1))
+            if (( CURRENT >= 2 )); then
+                CURRENT=$((CURRENT + 1))
+            fi
         fi
         ${=_comps[vp]}
     }
@@ -97,8 +98,9 @@ fish wrapper and vpr completion keep global -C before env use/run
 ```
 # Vite+ environment setup (https://viteplus.dev)
 set -gx VP_HOME "<workspace>/home"
-set -l __vp_idx (contains -i -- "<workspace>/home/bin" $PATH)
-and set -e PATH[$__vp_idx]
+while set -l __vp_idx (contains -i -- "<workspace>/home/bin" $PATH)
+    set -e PATH[$__vp_idx]
+end
 set -gx PATH "<workspace>/home/bin" $PATH
 
 # Shell function wrapper: intercepts `vp env use` to eval its stdout,
@@ -121,7 +123,10 @@ function vp
         set -lx VP_ENV_USE_EVAL_ENABLE 1
         set -lx VP_SHELL fish
         set -l __vp_out (command vp $argv); or return $status
-        eval (string join ';' $__vp_out)
+        for __vp_command in $__vp_out
+            eval $__vp_command; or return $status
+        end
+        return 0
     else
         command vp $argv
     end
@@ -213,8 +218,8 @@ def "nu-complete vp" [context: string] {
 def "nu-complete vpr" [context: string] {
     let modified_context = if ($context =~ '^vpr(?<cwd>\s+-C\s+(?:"[^"]*"|\x27[^\x27]*\x27|\S+))\s') {
         $context | str replace -r '^vpr(?<cwd>\s+-C\s+(?:"[^"]*"|\x27[^\x27]*\x27|\S+))\s' 'vp$cwd run '
-    } else if ($context =~ '^vpr(?<cwd>\s+-C=?\S+)\s') {
-        $context | str replace -r '^vpr(?<cwd>\s+-C=?\S+)\s' 'vp$cwd run '
+    } else if ($context =~ '^vpr(?<cwd>\s+-C=?(?:"[^"]*"|\x27[^\x27]*\x27|\S+))\s') {
+        $context | str replace -r '^vpr(?<cwd>\s+-C=?(?:"[^"]*"|\x27[^\x27]*\x27|\S+))\s' 'vp$cwd run '
     } else if ($context =~ '^vpr\s+-C') {
         $context | str replace -r '^vpr' 'vp'
     } else {
@@ -252,7 +257,7 @@ function vp {
     if ($args.Count -ge 1) {
         if ($args[0] -eq "-C") {
             $__vp_command_index = 2
-        } elseif ($args[0].StartsWith("-C") -and $args[0].Length -gt 2) {
+        } elseif ("$($args[0])" -like "-C?*") {
             $__vp_command_index = 1
         }
     }
@@ -292,8 +297,8 @@ $__vpr_comp = {
     $args = $commandLine.Substring(0, [math]::Min($cursorPosition, $commandLine.Length))
     if ($args -match '^(vpr\.exe|vpr)\b(\s+-C\s+(?:"[^"]*"|''[^'']*''|\S+))\s') {
         $args = $args -replace '^(vpr\.exe|vpr)\b(\s+-C\s+(?:"[^"]*"|''[^'']*''|\S+))\s', 'vp$2 run '
-    } elseif ($args -match '^(vpr\.exe|vpr)\b(\s+-C=?\S+)\s') {
-        $args = $args -replace '^(vpr\.exe|vpr)\b(\s+-C=?\S+)\s', 'vp$2 run '
+    } elseif ($args -match '^(vpr\.exe|vpr)\b(\s+-C=?(?:"[^"]*"|''[^'']*''|\S+))\s') {
+        $args = $args -replace '^(vpr\.exe|vpr)\b(\s+-C=?(?:"[^"]*"|''[^'']*''|\S+))\s', 'vp$2 run '
     } elseif ($args -match '^(vpr\.exe|vpr)\b\s+-C') {
         $args = $args -replace '^(vpr\.exe|vpr)\b', 'vp'
     } else {
